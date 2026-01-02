@@ -16,15 +16,22 @@
 
 
 //PID相关全局变量
-volatile float Target_1 = 0, Actual_1 = 0, Out_1 = 0;			//目标值，实际值，输出值
-volatile float Kp_1 = 0, Ki_1 = 0, Kd_1 = 0;	//比例项，积分项，微分项的权重
-volatile float Error0_1 = 0, Error1_1 = 0, IntOut_1 = 0;		//本次误差，上次误差，误差积分
+static float Target_1 = 0.0f, Out_1 = 0.0f;						//目标值,输出值
+static volatile float Actual_1 = 0.0f;							//实际值
+static float Kp_1 = 0.8, Ki_1 = 0.1, Kd_1 = 0.0f;					//比例项,积分项,微分项的权重
+static float Error0_1 = 0.0f, Error1_1 = 0.0f, IntOut_1 = 0.0f;		//本次误差,上次误差,误差积分
 
-volatile float Target_2 = 0, Actual_2 = 0, Out_2 = 0;			//目标值，实际值，输出值
-volatile float Kp_2 = 2, Ki_2 = 0, Kd_2 = 0;		//比例项，积分项，微分项的权重
-volatile float Error0_2 = 0, Error1_2 = 0, IntOut_2 = 0;		//本次误差，上次误差，误差积分
+static float Target_2 = 0.0f, Out_2 = 0.0f;						//目标值,实际值,输出值
+static volatile float Actual_2 = 0.0f;							//实际值
+static float Kp_2 = 2, Ki_2 = 0.0f, Kd_2 = 0.0f;					//比例项,积分项,微分项的权重
+static float Error0_2 = 0.0f, Error1_2 = 0.0f, IntOut_2 = 0.0f;		//本次误差,上次误差,误差积分
 
-volatile uint16_t TimeTick = 0;						//计时器（应用在定时器定时中断）
+static volatile uint8_t PID_ENABLE = 0;						//PID使能
+
+
+static volatile uint8_t Serial_ENABLE = 0;					//蓝牙回传使能
+
+static volatile uint16_t TimeTick = 0;						//计时器（应用在定时器定时中断）
 
 int main()
 {	
@@ -33,6 +40,8 @@ int main()
 	Serial_Init();
 	Motor_Init();
 	Encoder_Init();
+	
+	Timer_Init();
 	
 	Serial_Printf("[display-clear]");
 	Serial_Printf("[display,0,0,Tar1   Act1   Out1]");
@@ -71,9 +80,7 @@ int main()
 //			else 
 			if (strcmp(Tag, "slider") == 0)
 			{
-				//NULL表示为后续分割
 				char * Name = strtok(NULL, ",");
-				//如果没有新的子串，函数会返回空指针
 				char * Value = strtok(NULL, ",");
 				
 				if (strcmp(Name, "Kp1") == 0)
@@ -147,31 +154,22 @@ int main()
 		
 		
 		/* ==================== [START] 蓝牙回传数据模块 [START] ==================== */
-		Serial_Printf("[display,0,20,%03.1f  %03.1f  %03.1f]", Target_1, Actual_1, Out_1);
-		Serial_Printf("[display,0,60,%03.1f  %03.1f  %03.1f]", Target_2, Actual_2, Out_2);
+		if (Serial_ENABLE)
+		{
+			Serial_Printf("[display,0,20,%+04d   %+04d   %+04d]", (int)Target_1, (int)Actual_1, (int)Out_1);
+			Serial_Printf("[display,0,60,%+04d   %+04d   %+04d]", (int)Target_2, (int)Actual_2, (int)Out_2);
+			
+			Serial_ENABLE = 0;
+		}
 		/* ==================== [END] 蓝牙回传数据模块 [END] ==================== */
 		
 		
 		
 		
-	}
-}
-
-//1ms定时器
-void TIM1_UP_IRQHandler(void)
-{
-	//检查标志位
-	if (TIM_GetITStatus(TIM1,TIM_IT_Update) == SET )
-	{
-		TimeTick ++;
-		if (TimeTick >= 40)
+		/* ==================== [START] PID模块 [START] ==================== */
+		if (PID_ENABLE)
 		{
-			TimeTick = 0;
-			
-			//编码器数据读取与初步处理
-			Actual_1 = Encoder1_Get();
-			Actual_2 = Encoder2_Get();
-			
+			//数据初步处理
 			Error1_1 = Error0_1;
 			Error0_1 = Target_1 - Actual_1;		
 			
@@ -192,7 +190,7 @@ void TIM1_UP_IRQHandler(void)
 			if (Out_1 >  99){Out_1 =  99;}
 			if (Out_1 < -99){Out_1 = -99;}
 			
-			Out_2 = Kp_1 * Error0_2 + IntOut_2 + Kd_2 * (Error0_2 - Error1_2);
+			Out_2 = Kp_2 * Error0_2 + IntOut_2 + Kd_2 * (Error0_2 - Error1_2);
 			if (Out_2 >  99){Out_2 =  99;}
 			if (Out_2 < -99){Out_2 = -99;}
 			
@@ -200,6 +198,33 @@ void TIM1_UP_IRQHandler(void)
 			Motor_SetPWM1(Out_1);
 			Motor_SetPWM2(Out_2);
 			
+			PID_ENABLE = 0;
+		}
+		/* ==================== [END] PID模块 [END] ==================== */
+		
+		
+		
+		
+	}
+}
+
+//1ms定时器
+void TIM1_UP_IRQHandler(void)
+{
+	//检查标志位
+	if (TIM_GetITStatus(TIM1,TIM_IT_Update) == SET )
+	{
+		TimeTick ++;
+		if (TimeTick == 20){Serial_ENABLE = 1;}
+		if (TimeTick >= 40)
+		{
+			TimeTick = 0;
+			
+			//编码器数据读取
+			Actual_1 = Encoder1_Get();
+			Actual_2 = Encoder2_Get();
+			
+			PID_ENABLE = 1;			
 		}
 		
 		

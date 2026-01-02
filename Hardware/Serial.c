@@ -152,7 +152,7 @@ void USART1_IRQHandler(void)
 		
 		if (RxState == 0)//进入等待包头程序
 		{
-			if (RxData == '@' && Serial_RxFlag == 0)//防止发包过快
+			if (RxData == '[' && Serial_RxFlag == 0)//防止发包过快
 			{
 				RxState = 1;
 				pRxPacket = 0;
@@ -161,9 +161,12 @@ void USART1_IRQHandler(void)
 		else if (RxState == 1)//进入接收数据程序
 		{
 			//数据长度不确定，先判断是不是包尾
-			if (RxData == '\r')//第一个包尾
+			if (RxData == ']')//第一个包尾
 			{
-				RxState = 2;	
+				RxState = 0;
+				//加字符串结束标志位，方便处理
+				Serial_RxPacket[pRxPacket] = '\0';
+				Serial_RxFlag = 1;//接收标志位
 			}
 			else
 			{
@@ -171,16 +174,7 @@ void USART1_IRQHandler(void)
 				pRxPacket ++;
 			}
 		}
-		else if (RxState == 2)//进入等待包尾程序
-		{
-			if(RxData == '\n')//第二个包尾
-			{
-				RxState = 0;
-				//加字符串结束标志位，方便处理
-				Serial_RxPacket[pRxPacket] = '\0';
-				Serial_RxFlag = 1;//接收标志位
-			}
-		}
+
 		//顺手清一下DR的标志位
 		USART_ClearITPendingBit(USART1,USART_IT_RXNE);
 	}
