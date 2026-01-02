@@ -7,6 +7,7 @@
 #include "Serial.h"
 #include "Motor.h"
 #include "Encoder.h"
+#include "MPU6050.h"
 
 #include <string.h>
 #include <math.h>
@@ -15,7 +16,7 @@
 
 
 
-//PID相关全局变量
+/* ==================== [START] PID相关变量定义 [START] ==================== */
 static float Target_1 = 0.0f, Out_1 = 0.0f;						//目标值,输出值
 static volatile float Actual_1 = 0.0f;							//实际值
 static float Kp_1 = 0.8, Ki_1 = 0.1, Kd_1 = 0.0f;					//比例项,积分项,微分项的权重
@@ -32,6 +33,29 @@ static volatile uint8_t PID_ENABLE = 0;						//PID使能
 static volatile uint8_t Serial_ENABLE = 0;					//蓝牙回传使能
 
 static volatile uint16_t TimeTick = 0;						//计时器（应用在定时器定时中断）
+/* ==================== [END] PID相关变量定义 [END] ==================== */
+
+
+
+
+/* ==================== [START] MPU6050姿态解算相关变量定义 [START] ==================== */
+//MPU6050原始数据读取接收
+//int16_t AX, AY, AZ, GX, GY, GZ;
+volatile int16_t GZ;
+
+//float RollAcc;    		// 加速度计计算的横滚角
+//float RollGyro;   		// 陀螺仪积分的横滚角
+//float Roll;       		// 融合后的横滚角
+
+volatile float Yaw = 0;				//偏航角
+
+//float PitchAcc;			//加速度计算的俯仰角
+//float PitchGyro;			//陀螺仪积分的俯仰角
+//float Pitch;				//融合后的俯仰角	
+/* ==================== [END] MPU6050姿态解算相关变量定义 [END] ==================== */
+
+
+
 
 int main()
 {	
@@ -40,6 +64,7 @@ int main()
 	Serial_Init();
 	Motor_Init();
 	Encoder_Init();
+	MPU6050_Init();
 	
 	Timer_Init();
 	
@@ -158,7 +183,7 @@ int main()
 		{
 			Serial_Printf("[display,0,20,%+04d   %+04d   %+04d]", (int)Target_1, (int)Actual_1, (int)Out_1);
 			Serial_Printf("[display,0,60,%+04d   %+04d   %+04d]", (int)Target_2, (int)Actual_2, (int)Out_2);
-			
+			Serial_Printf("[display,0,80,%+04d   %+03.1f]", GZ, Yaw);
 			Serial_ENABLE = 0;
 		}
 		/* ==================== [END] 蓝牙回传数据模块 [END] ==================== */
@@ -214,6 +239,10 @@ void TIM1_UP_IRQHandler(void)
 	//检查标志位
 	if (TIM_GetITStatus(TIM1,TIM_IT_Update) == SET )
 	{
+		int16_t gz_tmp;
+		MPU6050_GetGZ(&gz_tmp);
+		GZ = gz_tmp;
+		
 		TimeTick ++;
 		if (TimeTick == 20){Serial_ENABLE = 1;}
 		if (TimeTick >= 40)
@@ -227,6 +256,28 @@ void TIM1_UP_IRQHandler(void)
 			PID_ENABLE = 1;			
 		}
 		
+		/* =================== [START] (全模式)MPU6050解算模块 [START]==================== */			
+		//校准零飘
+//		GX += 55;
+//		GY += 18;
+		GZ += 7;
+					
+		if(-1 < GZ && GZ < 2){GZ = 0;}
+					
+//		// 横滚角计算
+//		RollAcc = atan2(AY, AZ) / 3.14159 * 180;  				// 横滚角（绕X轴）
+//		RollGyro = Roll + GX / 32768.0 * 2000 * 0.001;  		// 陀螺仪X轴积分
+//		Roll = 0.001 * RollAcc + (1 - 0.001) * RollGyro;  		// 相同互补滤波算法
+			
+		// 偏航角：仅陀螺仪积分（无加速度计校准，会漂移）
+//		if (GZ <= -2 || 2 <= GZ){Yaw += GZ / 32768.0 * 2000 * 0.001;}
+		Yaw += GZ / 32768.0 * 2050 * 0.001;
+			
+//		// 俯仰角计算
+//		PitchAcc = -atan2(AX, AZ) / 3.14159 * 180;  			// 俯仰角（绕Y轴）
+//		PitchGyro = Pitch + GY / 32768.0 * 2000 * 0.001;  		// 陀螺仪积分（2000是量程，0.001是1ms采样间隔）
+//		Pitch = 0.001 * PitchAcc + (1 - 0.001) * PitchGyro;  	// 互补滤波
+		/* =================== [END] (全模式)MPU6050解算模块 [END]==================== */
 		
 		//清除标志位
 		TIM_ClearITPendingBit(TIM1,TIM_IT_Update);
